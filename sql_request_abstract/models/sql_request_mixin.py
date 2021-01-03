@@ -104,7 +104,8 @@ class SQLRequestMixin(models.AbstractModel):
     @api.multi
     def _execute_sql_request(
             self, params=None, mode='fetchall', rollback=True,
-            view_name=False, copy_options="CSV HEADER DELIMITER ';'"):
+            view_name=False, copy_options="CSV HEADER DELIMITER ';'",
+            header=False):
         """Execute a SQL request on the current database.
 
         ??? This function checks before if the user has the
@@ -130,6 +131,9 @@ class SQLRequestMixin(models.AbstractModel):
         :param copy_options: (str) mentions extra options for
             "COPY request STDOUT WITH xxx" request.
             (Ignored if @mode != 'stdout')
+        :param header: (boolean) if true, the header of the query will be
+            returned as first element of the list if the mode is fetchall.
+            (Ignored if @mode != fetchall)
 
         ..note:: The following exceptions could be raised:
             psycopg2.ProgrammingError: Error in the SQL Request.
@@ -148,12 +152,7 @@ class SQLRequestMixin(models.AbstractModel):
         if mode in ('view', 'materialized_view'):
             rollback = False
 
-        # pylint: disable=sql-injection
-        if params:
-            query = self.query % params
-        else:
-            query = self.query
-        query = query
+        query = self.env.cr.mogrify(self.query, params).decode('utf-8')
 
         if mode in ('fetchone', 'fetchall'):
             pass
@@ -179,6 +178,11 @@ class SQLRequestMixin(models.AbstractModel):
                 self.env.cr.execute(query)
                 if mode == 'fetchall':
                     res = self.env.cr.fetchall()
+                    if header:
+                        colnames = [
+                            desc[0] for desc in self.env.cr.description
+                        ]
+                        res.insert(0, colnames)
                 elif mode == 'fetchone':
                     res = self.env.cr.fetchone()
         finally:
